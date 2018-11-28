@@ -55,8 +55,66 @@ class RichTextFieldComparison(TextFieldComparison):
         ).to_html()
 
 
-class StreamFieldComparison(RichTextFieldComparison):
-    pass
+class BlockComparison:
+    def __init__(self, block_type, val_a, val_b):
+        self.block_type = block_type
+        self.val_a = val_a
+        self.val_b = val_b
+
+    def is_new(self):
+        return bool(self.val_b) and not bool(self.val_a)
+
+    def is_deleted(self):
+        return bool(self.val_a) and not bool(self.val_b)
+
+
+class StreamBlockChildComparison(BlockComparison):
+    def htmldiff(self):
+        print(self.block_type)
+        if self.is_new():
+            return "NEW"
+        elif self.is_deleted():
+            return "DELETED"
+        else:
+            return "EXISTING"
+
+
+class StreamBlockComparison(BlockComparison):
+    def get_block_comparisons(self):
+        a_blocks = list(self.val_a) or []
+        b_blocks = list(self.val_b) or []
+
+        a_blocks_by_id = { block.id: block for block in a_blocks }
+        b_blocks_by_id = { block.id: block for block in b_blocks }
+
+        deleted_ids = a_blocks_by_id.keys() - b_blocks_by_id.keys()
+        new_ids = b_blocks_by_id.keys() - a_blocks_by_id.keys()
+
+        comparisons = []
+        for block in b_blocks:
+            if block.id in a_blocks_by_id:
+                # Changed/existing block
+                comparisons.append(StreamBlockChildComparison(block.block_type, a_blocks_by_id[block.id], block))
+            else:
+                # New block
+                comparisons.append(StreamBlockChildComparison(block.block_type, None, block))
+
+        # Insert deleted blocks at the index where they used to be
+        deleted_block_indices = [(block, i) for i, block in enumerate(a_blocks) if block.id in deleted_ids]
+
+        for block, index in deleted_block_indices:
+            comparisons.insert(index, StreamBlockChildComparison(block.block_type, block, None))
+
+        return comparisons
+
+    def htmldiff(self):
+        comparisons_html = [comparison.htmldiff() for comparison in self.get_block_comparisons()]
+        return mark_safe('<ul><li>' + '</li><li>'.join(comparisons_html) + '</li></ul>')
+
+
+class StreamFieldComparison(FieldComparison):
+    def htmldiff(self):
+        return StreamBlockComparison(self.field.stream_block, self.val_a, self.val_b).htmldiff()
 
 
 class ChoiceFieldComparison(FieldComparison):
